@@ -10,6 +10,7 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
+#include "award.h" // award_scsi_enabled
 #include "biosvar.h" // GET_GLOBALFLAT
 #include "block.h" // struct drive_s
 #include "blockcmd.h" // scsi_drive_setup
@@ -50,6 +51,15 @@ struct lsi_lun_s {
     u8 target;
     u8 lun;
 };
+
+int
+lsi_scsi_drive_id(struct drive_s *drive, int *target, int *lun)
+{
+    struct lsi_lun_s *llun = container_of(drive, struct lsi_lun_s, drive);
+    *target = GET_GLOBALFLAT(llun->target);
+    *lun = GET_GLOBALFLAT(llun->lun);
+    return 0;
+}
 
 int
 lsi_scsi_process_op(struct disk_op_s *op)
@@ -210,6 +220,10 @@ lsi_scsi_setup(void)
     ASSERT32FLAT();
     if (!CONFIG_LSI_SCSI || !runningOnQEMU())
         return;
+#if CONFIG_AWARD_SETUP && !MODE16
+    if (!award_scsi_enabled(AWARD_SCSI_LSI))
+        return;
+#endif
 
     dprintf(3, "init lsi53c895a\n");
 

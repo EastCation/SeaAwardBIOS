@@ -6,6 +6,7 @@
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
 #include "ata.h" // ATA_CB_STAT
+#include "award.h" // award_ide_*
 #include "biosvar.h" // GET_GLOBALFLAT
 #include "block.h" // struct drive_s
 #include "blockcmd.h" // CDB_CMD_READ_10
@@ -846,6 +847,26 @@ powerup_await_non_bsy(u16 base)
     return status;
 }
 
+static int
+ata_chan_enabled(int chanid)
+{
+#if CONFIG_AWARD_SETUP && !MODE16
+    return award_ide_channel_enabled(chanid);
+#else
+    return 1;
+#endif
+}
+
+static int
+ata_dev_enabled(int chanid, int slave)
+{
+#if CONFIG_AWARD_SETUP && !MODE16
+    return award_ide_device_enabled(chanid, slave);
+#else
+    return 1;
+#endif
+}
+
 // Detect any drives attached to a given controller.
 static void
 ata_detect(void *data)
@@ -858,6 +879,8 @@ ata_detect(void *data)
     int didreset = 0;
     u8 slave;
     for (slave=0; slave<=1; slave++) {
+        if (!ata_dev_enabled(chan_gf->chanid, slave))
+            continue;
         // Wait for not-bsy.
         u16 iobase1 = chan_gf->iobase1;
         int status = powerup_await_non_bsy(iobase1);
@@ -977,7 +1000,8 @@ init_pciata(struct pci_device *pci, u8 prog_if)
         port2 = PORT_ATA1_CTRL_BASE;
         irq = IRQ_ATA1;
     }
-    init_controller(pci, 0, irq, port1, port2, master);
+    if (ata_chan_enabled(0))
+        init_controller(pci, 0, irq, port1, port2, master);
 
     if (prog_if & 4) {
         port1 = pci_enable_iobar(pci, PCI_BASE_ADDRESS_2);
@@ -990,7 +1014,8 @@ init_pciata(struct pci_device *pci, u8 prog_if)
         port2 = PORT_ATA2_CTRL_BASE;
         irq = IRQ_ATA2;
     }
-    init_controller(pci, 1, irq, port1, port2, master ? master + 8 : 0);
+    if (ata_chan_enabled(1))
+        init_controller(pci, 1, irq, port1, port2, master ? master + 8 : 0);
 }
 
 static void
@@ -1022,10 +1047,12 @@ ata_scan(void)
     if (CONFIG_QEMU && hlist_empty(&PCIDevices)) {
         // No PCI devices found - probably a QEMU "-M isapc" machine.
         // Try using ISA ports for ATA controllers.
-        init_controller(NULL, 0, IRQ_ATA1
-                        , PORT_ATA1_CMD_BASE, PORT_ATA1_CTRL_BASE, 0);
-        init_controller(NULL, 1, IRQ_ATA2
-                        , PORT_ATA2_CMD_BASE, PORT_ATA2_CTRL_BASE, 0);
+        if (ata_chan_enabled(0))
+            init_controller(NULL, 0, IRQ_ATA1
+                            , PORT_ATA1_CMD_BASE, PORT_ATA1_CTRL_BASE, 0);
+        if (ata_chan_enabled(1))
+            init_controller(NULL, 1, IRQ_ATA2
+                            , PORT_ATA2_CMD_BASE, PORT_ATA2_CTRL_BASE, 0);
         return;
     }
 

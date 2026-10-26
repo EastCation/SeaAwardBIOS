@@ -8,6 +8,7 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
+#include "award.h" // award_acpi_enabled
 #include "byteorder.h" // be32_to_cpu
 #include "config.h" // CONFIG_QEMU
 #include "e820map.h" // e820_add
@@ -253,8 +254,13 @@ qemu_preinit(void)
         dprintf(1, "RamSize: 0x%08x [cmos]\n", RamSize);
     }
 
+#if CONFIG_AWARD_SETUP
+    /* reserve 512KB for the 256KB BIOS and 256KB pflash NVRAM */
+    e820_add(0xfff80000, 512*1024, E820_RESERVED);
+#else
     /* reserve 256KB BIOS area at the end of 4 GB */
     e820_add(0xfffc0000, 256*1024, E820_RESERVED);
+#endif
 }
 
 #define MSR_IA32_FEATURE_CONTROL 0x0000003a
@@ -297,6 +303,11 @@ qemu_platform_setup(void)
         mptable_setup();
     }
     smbios_setup();
+
+#if CONFIG_AWARD_SETUP
+    if (!award_acpi_enabled())
+        return;
+#endif
 
     if (CONFIG_FW_ROMFILE_LOAD) {
         int loader_err;

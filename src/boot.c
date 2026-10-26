@@ -5,6 +5,7 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
+#include "award.h" // award_*
 #include "block.h" // struct drive_s
 #include "bregs.h" // struct bregs
 #include "config.h" // CONFIG_*
@@ -489,9 +490,33 @@ boot_init(void)
         }
     }
 
+#if CONFIG_AWARD_SETUP
+    if (award_has_nvram()) {
+        DefaultFloppyPrio = DefaultCDPrio = DefaultHDPrio
+            = DefaultBEVPrio = DEFAULT_PRIO;
+        int i;
+        for (i = 0; i < 3; i++) {
+            int prio = 101 + i;
+            switch (award_boot_device(i)) {
+            case AWARD_BOOT_FLOPPY: DefaultFloppyPrio = prio; break;
+            case AWARD_BOOT_HDD:    DefaultHDPrio = prio;     break;
+            case AWARD_BOOT_CDROM:  DefaultCDPrio = prio;     break;
+            case AWARD_BOOT_NETWORK: DefaultBEVPrio = prio;   break;
+            }
+        }
+        if (!award_network_boot_allowed())
+            DefaultBEVPrio = DEFAULT_PRIO;
+    }
+#endif
+
     BootRetryTime = romfile_loadint("etc/boot-fail-wait", 60*1000);
 
+#if CONFIG_AWARD_SETUP
+    if (!award_has_nvram())
+        loadBootOrder();
+#else
     loadBootOrder();
+#endif
     loadBiosGeometry();
 }
 
@@ -621,6 +646,25 @@ boot_add_cbfs(void *data, const char *desc, int prio)
     bootentry_add(IPL_TYPE_CBFS, defPrio(prio, DEFAULT_PRIO), (u32)data, desc);
 }
 
+struct drive_s *
+boot_drive_at(int index, const char **desc)
+{
+    struct bootentry_s *pos;
+    int i = 0;
+    hlist_for_each_entry(pos, &BootList, node) {
+        if (pos->type != IPL_TYPE_FLOPPY && pos->type != IPL_TYPE_HARDDISK
+            && pos->type != IPL_TYPE_CDROM)
+            continue;
+        if (i == index) {
+            if (desc)
+                *desc = pos->description;
+            return pos->drive;
+        }
+        i++;
+    }
+    return NULL;
+}
+
 
 /****************************************************************
  * Keyboard calls
@@ -690,11 +734,85 @@ static const char menuchars[] = {
     'u', 'v', 'w', 'x', 'y', 'z'
 };
 
+static int BootMenuShown;
+
+static void
+show_bootmenu(int force)
+{
+    if (BootMenuShown)
+        return;
+    BootMenuShown = 1;
+
+    while (get_keystroke(0) >= 0)
+        ;
+
+    printf("Select boot device:\n\n");
+    wait_threads();
+
+    // Show menu items
+    int maxmenu = 0;
+    struct bootentry_s *pos, *boot = NULL;
+    hlist_for_each_entry(pos, &BootList, node) {
+        char desc[77];
+        if (maxmenu >= ARRAY_SIZE(menuchars))
+            break;
+        printf("%c. %s\n", menuchars[maxmenu]
+               , strtcpy(desc, pos->description, ARRAY_SIZE(desc)));
+        maxmenu++;
+    }
+    if (tpm_can_show_menu())
+        printf("\nt. TPM Configuration\n");
+
+    int menukey = romfile_loadint("etc/boot-menu-key", 1);
+    int esc_accepted_time = irqtimer_calc(force ? 0
+                                          : (menukey == 1 ? 1500 : 0));
+    for (;;) {
+        int keystroke = get_keystroke_full(1000);
+        if (keystroke == 0x011b && !irqtimer_check(esc_accepted_time))
+            continue;
+        if (keystroke < 0) // timeout
+            continue;
+
+        int scan_code = keystroke >> 8;
+        int key_ascii = keystroke & 0xff;
+        if (tpm_can_show_menu() && key_ascii == 't') {
+            printf("\n");
+            tpm_menu();
+        }
+        if (scan_code == 1) {
+            // ESC
+            printf("\n");
+            return;
+        }
+
+        maxmenu = 0;
+        hlist_for_each_entry(pos, &BootList, node) {
+            if (maxmenu >= ARRAY_SIZE(menuchars))
+                break;
+            if (key_ascii == menuchars[maxmenu]) {
+                boot = pos;
+                break;
+            }
+            maxmenu++;
+        }
+        if (boot)
+            break;
+    }
+    printf("\n");
+
+    // Find entry and make top priority.
+    hlist_del(&boot->node);
+    boot->priority = 0;
+    hlist_add_head(&boot->node, &BootList);
+}
+
 // Show IPL option menu.
 void
 interactive_bootmenu(void)
 {
     if (! CONFIG_BOOTMENU)
+        return;
+    if (BootMenuShown)
         return;
     int show_boot_menu = romfile_loadint("etc/show-boot-menu", 1);
     if (!show_boot_menu)
@@ -726,71 +844,21 @@ interactive_bootmenu(void)
             return;
     }
 
-    while (get_keystroke(0) >= 0)
-        ;
+    show_bootmenu(0);
+}
 
-    printf("Select boot device:\n\n");
-    wait_threads();
+void
+interactive_bootmenu_force(void)
+{
+    if (!CONFIG_BOOTMENU)
+        return;
+    show_bootmenu(1);
+}
 
-    // Show menu items
-    int maxmenu = 0;
-    struct bootentry_s *pos, *boot = NULL;
-    hlist_for_each_entry(pos, &BootList, node) {
-        char desc[77];
-        if (maxmenu >= ARRAY_SIZE(menuchars)) {
-            break;
-        }
-        printf("%c. %s\n", menuchars[maxmenu]
-               , strtcpy(desc, pos->description, ARRAY_SIZE(desc)));
-        maxmenu++;
-    }
-    if (tpm_can_show_menu()) {
-        printf("\nt. TPM Configuration\n");
-    }
-
-    // Get key press.  If the menu key is ESC, do not restart boot unless
-    // 1.5 seconds have passed.  Otherwise users (trained by years of
-    // repeatedly hitting keys to enter the BIOS) will end up hitting ESC
-    // multiple times and immediately booting the primary boot device.
-    int esc_accepted_time = irqtimer_calc(menukey == 1 ? 1500 : 0);
-    for (;;) {
-        int keystroke = get_keystroke_full(1000);
-        if (keystroke == 0x011b && !irqtimer_check(esc_accepted_time))
-            continue;
-        if (keystroke < 0) // timeout
-            continue;
-
-        scan_code = keystroke >> 8;
-        int key_ascii = keystroke & 0xff;
-        if (tpm_can_show_menu() && key_ascii == 't') {
-            printf("\n");
-            tpm_menu();
-        }
-        if (scan_code == 1) {
-            // ESC
-            printf("\n");
-            return;
-        }
-
-        maxmenu = 0;
-        hlist_for_each_entry(pos, &BootList, node) {
-            if (maxmenu >= ARRAY_SIZE(menuchars))
-                break;
-            if (key_ascii == menuchars[maxmenu]) {
-                boot = pos;
-                break;
-            }
-            maxmenu++;
-        }
-        if (boot)
-            break;
-    }
-    printf("\n");
-
-    // Find entry and make top priority.
-    hlist_del(&boot->node);
-    boot->priority = 0;
-    hlist_add_head(&boot->node, &BootList);
+void
+boot_menu_skip(void)
+{
+    BootMenuShown = 1;
 }
 
 // BEV (Boot Execution Vector) list
@@ -962,6 +1030,8 @@ boot_rom(u32 vector)
     call_boot_entry(so, 0);
 }
 
+int BootSequence VARLOW = -1;
+
 // Unable to find bootable device - warn user and eventually retry.
 static void
 boot_fail(void)
@@ -992,8 +1062,18 @@ do_boot(int seq_nr)
     if (seq_nr >= BEVCount)
         boot_fail();
 
+    struct bev_s *ie;
+#if CONFIG_AWARD_SETUP
+    while (seq_nr < BEVCount && BEV[seq_nr].type == IPL_TYPE_BEV
+           && !award_network_boot_allowed())
+        seq_nr++;
+    if (seq_nr >= BEVCount)
+        boot_fail();
+    BootSequence = seq_nr;
+#endif
+    ie = &BEV[seq_nr];
+
     // Boot the given BEV type.
-    struct bev_s *ie = &BEV[seq_nr];
     switch (ie->type) {
     case IPL_TYPE_FLOPPY:
         printf("Booting from Floppy...\n");
@@ -1023,8 +1103,6 @@ do_boot(int seq_nr)
     br.flags = F_IF;
     call16_int(0x18, &br);
 }
-
-int BootSequence VARLOW = -1;
 
 // Boot Failure recovery: try the next device.
 void VISIBLE32FLAT

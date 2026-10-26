@@ -1,17 +1,27 @@
-Welcome to the SeaBIOS project!  This project implements an X86 legacy
-bios that is built with standard GNU tools.
+Welcome to SeaAwardBIOS!
 
-Please see build and developer information at:
+This project is based on SeaBIOS and is designed to emulate the look and
+behavior of an Award BIOS-style firmware for x86 legacy systems. In addition
+to the standard SeaBIOS foundation, it includes Award-like BIOS features and
+compatibility elements such as:
 
-  https://seabios.org/Developer_Documentation.html
+  - NVARM support
+  - CMOS Setup configuration interface
+  - SCSI BIOS Display support
 
-For the impatient, SeaBIOS is built for QEMU and tested on QEMU with:
+The code is built with standard GNU tools and is intended for classic BIOS
+platforms, firmware development, and QEMU-based testing.
+
+Quick build and test:
 
   make
   qemu -bios out/bios.bin
 
-SeaBIOS can be configured with kconfig.  To change the default
-configuration one can run "make menuconfig" prior to running "make".
+SeaAwardBIOS can be configured with kconfig. To adjust the default
+configuration, run:
 
-For other types of builds, and for more detailed developer
-documentation, please see the online documentation listed above.
+  make menuconfig
+  make
+
+For more build notes and project documentation, please refer to the files in
+the docs/ directory and the source tree.

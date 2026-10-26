@@ -5,6 +5,7 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
+#include "award.h" // award_serial_port
 #include "biosvar.h" // SET_BDA
 #include "bregs.h" // struct bregs
 #include "hw/serialio.h" // SEROFF_IER
@@ -46,10 +47,19 @@ serial_setup(void)
     dprintf(3, "init serial\n");
 
     u16 count = 0;
+#if CONFIG_AWARD_SETUP && !MODE16
+    u16 port1 = award_serial_port(0);
+    u16 port2 = award_serial_port(1);
+    if (port1)
+        count += detect_serial(port1, 0x0a, count);
+    if (port2 && port2 != port1)
+        count += detect_serial(port2, 0x0a, count);
+#else
     count += detect_serial(PORT_SERIAL1, 0x0a, count);
     count += detect_serial(PORT_SERIAL2, 0x0a, count);
     count += detect_serial(PORT_SERIAL3, 0x0a, count);
     count += detect_serial(PORT_SERIAL4, 0x0a, count);
+#endif
     dprintf(1, "Found %d serial ports\n", count);
 
     // Equipment word bits 9..11 determing # serial ports
@@ -209,8 +219,14 @@ lpt_setup(void)
     dprintf(3, "init lpt\n");
 
     u16 count = 0;
+#if CONFIG_AWARD_SETUP && !MODE16
+    u16 port = award_parallel_port();
+    if (port)
+        count += detect_parport(port, 0x14, count);
+#else
     count += detect_parport(PORT_LPT1, 0x14, count);
     count += detect_parport(PORT_LPT2, 0x14, count);
+#endif
     dprintf(1, "Found %d lpt ports\n", count);
 
     // Equipment word bits 14..15 determing # parallel ports

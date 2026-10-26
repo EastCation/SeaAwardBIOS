@@ -5,6 +5,7 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
+#include "award.h" // award_bios_setup
 #include "biosvar.h" // SET_BDA
 #include "block.h" // block_setup
 #include "bregs.h" // struct bregs
@@ -126,7 +127,12 @@ interface_init(void)
 void
 device_hardware_setup(void)
 {
+#if CONFIG_AWARD_SETUP
+    if (award_usb_enabled())
+        usb_setup();
+#else
     usb_setup();
+#endif
     ps2port_setup();
     block_setup();
     lpt_setup();
@@ -219,6 +225,11 @@ maininit(void)
 
     // Run option roms
     optionrom_setup();
+    wait_threads();
+
+#if CONFIG_AWARD_SETUP
+    award_bios_setup();
+#endif
 
     // Allow user to modify overall boot order.
     interactive_bootmenu();

@@ -5,6 +5,7 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
+#include "award.h" // award_fdd_enabled
 #include "biosvar.h" // SET_BDA
 #include "block.h" // struct drive_s
 #include "bregs.h" // struct bregs
@@ -156,6 +157,10 @@ floppy_setup(void)
 
     if (! CONFIG_FLOPPY)
         return;
+#if CONFIG_AWARD_SETUP && !MODE16
+    if (!award_fdd_enabled())
+        return;
+#endif
     dprintf(3, "init floppy drives\n");
 
     if (CONFIG_QEMU) {

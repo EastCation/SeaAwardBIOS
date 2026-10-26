@@ -7,6 +7,7 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
+#include "award.h" // award_scsi_enabled
 #include "block.h" // struct drive_s
 #include "blockcmd.h" // scsi_drive_setup
 #include "config.h" // CONFIG_*
@@ -34,6 +35,15 @@ struct virtio_lun_s {
     u16 target;
     u16 lun;
 };
+
+int
+virtio_scsi_drive_id(struct drive_s *drive, int *target, int *lun)
+{
+    struct virtio_lun_s *vlun = container_of(drive, struct virtio_lun_s, drive);
+    *target = GET_GLOBALFLAT(vlun->target);
+    *lun = GET_GLOBALFLAT(vlun->lun);
+    return 0;
+}
 
 int
 virtio_scsi_process_op(struct disk_op_s *op)
@@ -283,6 +293,10 @@ virtio_scsi_setup(void)
     ASSERT32FLAT();
     if (! CONFIG_VIRTIO_SCSI)
         return;
+#if CONFIG_AWARD_SETUP
+    if (!award_scsi_enabled(AWARD_SCSI_VIRTIO))
+        return;
+#endif
 
     dprintf(3, "init virtio-scsi\n");
 

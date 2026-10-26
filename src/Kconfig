@@ -59,6 +59,15 @@ endchoice
         default y
         help
             Support an interactive boot menu at end of post.
+    config AWARD_SETUP
+        depends on QEMU && BOOT
+        bool "Award-style CMOS setup with QEMU pflash NVRAM"
+        default y
+        help
+            Add an AwardBIOS-style CMOS setup utility.  Pressing F2 or Del
+            during POST enters the utility.  Settings are stored in a
+            persistent QEMU pflash NVRAM image (the second -drive if=pflash
+            device).
     config BOOTSPLASH
         depends on BOOTMENU
         bool "Graphical boot splash screen"
